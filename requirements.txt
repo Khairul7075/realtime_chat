@@ -1,0 +1,14 @@
+# Core framework
+Django>=4.0,<5.0
+
+# Django Channels for WebSockets
+channels>=4.0
+
+# Daphne ASGI server
+daphne>=4.0
+
+# Redis client (for channel layer)
+redis>=5.0
+
+# Optional: environment variables management
+python-dotenv>=1.0

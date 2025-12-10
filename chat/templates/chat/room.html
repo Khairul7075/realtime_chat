@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chat Room</title>
+    {% load static %}   
+    <link rel="stylesheet" href="{% static 'chat/chat.css' %}"> <!--Link external css -->
+</head>
+<body>
+    <div class="chat-container">
+        <h2>Room: {{ room_name }}</h2>
+
+        <div id="chat-log">
+            {% for msg in messages %}
+            <div class="message" id="msg-{{ msg.id }}">
+                {% if msg.is_deleted %}
+                    <em>Message deleted</em>
+                {% else %}
+                    <strong>{{ msg.author.username }}</strong>:
+                    <span class="content">{{ msg.content }}</span>
+                    <span class="edited">{% if msg.edited %}(edited){% endif %}</span>
+                    <span class="status">
+                        {% if user in msg.seen_by.all %}
+                            ✓✓
+                        {% else %}
+                            ✓
+                        {% endif %}
+                    </span>
+                    {% if msg.author == user %}
+                        <a href="#" class="edit-btn" onclick="startEdit({{ msg.id }}, '{{ msg.content|escapejs }}')">✏️</a>
+                        <a href="{% url 'chat:delete_message' msg.id %}" class="delete-btn">🗑</a>
+                    {% endif %}
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="input-area">
+            <input id="chat-message-input" type="text" placeholder="Type your message here...">
+            <button id="chat-message-submit"></button>
+        </div>
+    </div>
+
+    <!-- Link external  JS -->
+    
+    <script src="{% static 'chat/chat.js' %}"></script>
+ </body>
+</html>
