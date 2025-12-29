@@ -2,13 +2,86 @@
 <html>
 <head>
     <title>Chat Room</title>
-    {% load static %}   
-    <link rel="stylesheet" href="{% static 'chat/chat.css' %}"> <!--Link external css -->
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: linear-gradient(135deg, #74ebd5 0%, #ACB6E5 100%);
+        }
+
+        #chat-log::-webkit-scrollbar { width: 6px; }
+        #chat-log::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+
+        .chat-container {
+            width: 500px;
+            background-color: #f9f9f9;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        h2 { margin-bottom: 20px; color: #333; text-align: center; }
+
+        #chat-log {
+            flex: 1;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            padding: 10px;
+            background-color: #fff;
+            overflow-y: auto;
+            margin-bottom: 15px;
+        }
+
+        .message {
+            margin: 8px 0;
+            padding: 8px 12px;
+            border-radius: 12px;
+            max-width: 70%;
+            font-size: 14px;
+            display: inline-block;
+            position: relative;
+        }
+
+        .sent { background-color: #dcf8c6; text-align: right; float: right; clear: both; }
+        .received { background-color: #f1f0f0; text-align: left; float: left; clear: both; }
+
+        .timestamp { display: block; font-size: 11px; color: #666; margin-top: 4px; }
+        .status { font-size: 11px; color: #888; margin-left: 6px; }
+        .status.seen { color: blue; }
+
+        .delete-btn, .edit-btn {
+            font-size: 12px; color: black; text-decoration: none; margin-left: 8px;
+        }
+        .delete-btn:hover { text-decoration: underline; color: darkred; }
+        .edit-btn:hover { text-decoration: underline; color: darkblue; }
+
+        .input-area { display: flex; align-items: center; }
+        #chat-message-input {
+            flex: 1; padding: 10px; font-size: 14px;
+            border: 1px solid #ccc; border-radius: 6px; margin-right: 10px;
+        }
+        #typing-indicator { font-style: italic; opacity: 0.8; }
+        #chat-message-submit {
+            padding: 10px 15px; font-size: 18px;
+            background-color: #4CAF50; color: white;
+            border: none; border-radius: 50%; cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        #chat-message-submit:hover { background-color: #45a049; }
+    </style>
 </head>
 <body>
     <div class="chat-container">
         <h2>Room: {{ room_name }}</h2>
 
+        <!-- Chat log -->
         <div id="chat-log">
             {% for msg in messages %}
             <div class="message" id="msg-{{ msg.id }}">
@@ -19,29 +92,138 @@
                     <span class="content">{{ msg.content }}</span>
                     <span class="edited">{% if msg.edited %}(edited){% endif %}</span>
                     <span class="status">
-                        {% if user in msg.seen_by.all %}
-                            ✓✓
-                        {% else %}
-                            ✓
-                        {% endif %}
+                        {% if request.user in msg.seen_by.all %}✓✓{% else %}✓{% endif %}
                     </span>
-                    {% if msg.author == user %}
-                        <a href="#" class="edit-btn" onclick="startEdit({{ msg.id }}, '{{ msg.content|escapejs }}')">✏️</a>
-                        <a href="{% url 'chat:delete_message' msg.id %}" class="delete-btn">🗑</a>
+                    {% if msg.author == request.user %}
+                        <a href="javascript:void(0);" class="edit-btn"
+                           onclick="startEdit({{ msg.id }}, '{{ msg.content|escapejs }}')">✏️</a>
+                        <a href="javascript:void(0);" class="delete-btn"
+                           onclick="deleteMessage({{ msg.id }})">🗑</a>
                     {% endif %}
                 {% endif %}
             </div>
+            {% empty %}
+            <p>No messages yet.</p>
             {% endfor %}
         </div>
 
+        <!-- Input area -->
         <div class="input-area">
             <input id="chat-message-input" type="text" placeholder="Type your message here...">
-            <button id="chat-message-submit"></button>
+            <button id="chat-message-submit">Send</button>
         </div>
     </div>
 
-    <!-- Link external  JS -->
-    
-    <script src="{% static 'chat/chat.js' %}"></script>
- </body>
+    <!-- Pass variables to JS -->
+    <script>
+        window.chatConfig = {
+            roomName: "{{ room_name }}",
+            username: "{{ request.user.username|default:'Anonymous' }}"
+        };
+
+        const roomName = window.chatConfig.roomName;
+        const username = window.chatConfig.username;
+        const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
+        const chatSocket = new WebSocket(protocol + window.location.host + "/ws/chat/" + roomName + "/");
+
+        function getTime() {
+            const now = new Date();
+            return now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        }
+
+        chatSocket.onopen = () => console.log("WebSocket connected");
+        chatSocket.onclose = () => console.log("WebSocket closed");
+        chatSocket.onerror = (e) => console.error("WebSocket error", e);
+
+        chatSocket.onmessage = function(e) {
+            const data = JSON.parse(e.data);
+
+            if (data.type === "delete_message") {
+                const msgElem = document.querySelector(`#msg-${data.message_id}`);
+                if (msgElem) msgElem.innerHTML = "<em>Message deleted</em>";
+                return;
+            }
+
+            if (data.type === "edit_message") {
+                const msgElem = document.querySelector(`#msg-${data.message_id}`);
+                if (msgElem) {
+                    const contentSpan = msgElem.querySelector(".content");
+                    if (contentSpan) contentSpan.textContent = data.new_content;
+                    const editedSpan = msgElem.querySelector(".edited");
+                    if (editedSpan) editedSpan.textContent = "(edited)";
+                }
+                return;
+            }
+
+            // Normal message
+            const chatLog = document.querySelector("#chat-log");
+            const msgDiv = document.createElement("div");
+            msgDiv.classList.add("message");
+            msgDiv.id = "msg-" + data.message_id;
+
+            if (data.sender === username) {
+                msgDiv.classList.add("sent");
+                msgDiv.innerHTML = `<strong>${data.sender}</strong>: 
+                    <span class="content">${data.message}</span>
+                    <span class="timestamp">Sent at ${getTime()}</span>
+                    <span class="status">✓</span>
+                    <a href="javascript:void(0);" class="edit-btn" onclick="startEdit(${data.message_id}, '${data.message}')">✏️</a>
+                    <a href="javascript:void(0);" class="delete-btn" onclick="deleteMessage(${data.message_id})">🗑</a>`;
+            } else {
+                msgDiv.classList.add("received");
+                msgDiv.innerHTML = `<strong>${data.sender}</strong>: 
+                    <span class="content">${data.message}</span>
+                    <span class="timestamp">Received at ${getTime()}</span>`;
+            }
+
+            chatLog.appendChild(msgDiv);
+            chatLog.scrollTop = chatLog.scrollHeight;
+        };
+
+        const inputEl = document.querySelector("#chat-message-input");
+        document.querySelector("#chat-message-submit").onclick = function() {
+            const message = inputEl.value.trim();
+            if (message) {
+                chatSocket.send(JSON.stringify({
+                    type: "message",
+                    message: message
+                }));
+                inputEl.value = "";
+            }
+        };
+
+        function startEdit(msgId, oldContent) {
+            const msgElem = document.querySelector(`#msg-${msgId}`);
+            const contentSpan = msgElem.querySelector(".content");
+            const editForm = document.createElement("input");
+            editForm.type = "text";
+            editForm.value = oldContent;
+            editForm.classList.add("edit-input");
+
+            msgElem.replaceChild(editForm, contentSpan);
+
+            editForm.addEventListener("keydown", function(e) {
+                if (e.key === "Enter") {
+                    saveEdit(msgId, editForm.value);
+                }
+            });
+        }
+
+        function saveEdit(msgId, newContent) {
+            chatSocket.send(JSON.stringify({
+                type: "edit_message",
+                message_id: msgId,
+                new_content: newContent
+            }));
+        }
+
+        function deleteMessage(msgId) {
+            chatSocket.send(JSON.stringify({
+                type: "delete_message",
+                message_id: msgId
+            }));
+        }
+    </script>
+</body>
+
 </html>
